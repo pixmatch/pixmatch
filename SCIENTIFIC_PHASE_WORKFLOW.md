@@ -1,49 +1,39 @@
-# PixMatch Scientific Measurement Workflow
+# PixMatch Scientific Phase Workflow
 
-## Principle
-Everything is defined once, by hand, on reference frame 1. The other frames replay **only** what was
-defined there, using CIELAB (derived from RGB) appearance. Nothing that was not set up on frame 1 is computed.
+## Goal
+Build a physically meaningful composite phase from multiple CIELAB traces.
 
-## Reference lines and what they mean
-Draw a line (or click a saved line so it is selected), pick its meaning, then press **Use selected line as …**.
+Example:
+- Water (target): red water + black/dark water components
+- Oil (secondary): grey oil component
 
-| Meaning | What the line is | What is measured in every frame |
-| --- | --- | --- |
-| Height | The line *is* the measurement | Both endpoints are re-located from the CIELAB profile learned around them on frame 1; the new length is reported. Several height lines are allowed. |
-| Base level | A reference level | Distance from the top boundary of the target phase to this level. Needs a target phase. |
-| Chord span | A cut through the phase | Width of the target phase mask along this line. Needs a target phase. |
+The scientific water height is measured from the **top of the composite Water mask** to the **user-selected baseline**, rather than using a region bounding-box height.
 
-Base level and chord span are one definition each; height lines can be many.
-
-## Phases (only needed for base level / chord span)
-1. Use **Wand (CIELAB)** and click a region.
-2. Name a phase, choose Target or Secondary, click **Add current CIELAB region to phase**.
-3. Add more components to the same phase to build a composite (their masks are unioned).
-
-Phases are segmented in other frames only if a base-level or chord-span line exists.
-
-## How endpoint tracking works
-For height, the drawn line defines the measurement axis. PixMatch stores the reference appearance and uses the target phase mask to recompute the current full extent along that axis. Endpoint appearance is retained only as an auxiliary tracking signal.
-In each frame it searches near the previous frame's position, mostly along the axis and slightly across it, for the
-position whose profile has the lowest ΔE. Confidence is derived from that residual. The search radius is the value set in the detection panel.
+## Reference frame setup
+1. Calibrate the frame using the existing needle/known-distance workflow.
+2. Select **Wand (CIELAB)** and click the red water region.
+3. In **Scientific phase composition**, enter `Water`, choose `Target / water`, and click **Add current CIELAB region to phase**.
+4. Click the black/dark part of the water with the Wand.
+5. Add it again to the same `Water` target phase. These components are unioned for the physical measurement.
+6. Click the grey oil region, enter `Oil`, choose `Secondary / oil`, and add it.
+7. Draw the experimental substrate/base reference line and click **Use selected line as height baseline**.
+8. Run **Scientific measurement on all frames**.
 
 ## Output
-Per frame: tracked line length (px and calibrated units), phase extent and chord span when defined, confidence and status.
-CSV and HTML exports include a tracked-lines section.
+For every frame the engine stores:
+- target phase name
+- height in pixels
+- calibrated physical height
+- contact diameter in pixels and physical units when the baseline intersects the mask
+- top boundary Y
+- baseline Y
+- number of successfully detected components
+- confidence
+- status
 
-## Detection controls
-- **Lightness weight (L*)** lowers how much brightness counts in ΔE, so exposure drift between frames does not break matching. It is used by the wand, phase relocation and line tracking.
-- **Histogram · detection limits**: choose Gray, L*, a* or b*. On L*/a*/b* click the histogram (or type Min/Max) to set a hard window; **Fit to selected region** derives all three windows from a traced region (2nd–98th percentile). Windows are extra limits on top of ΔE and are stored with each phase you add.
-- **Match illumination to frame 1** (optional): before matching, each frame's CIELAB is shifted so its border colour equals frame 1's border colour.
-- Line tracking uses sub-pixel matching and clips per-sample ΔE so glare or occluders do not dominate.
+The overlay renders the detected composite target boundary and the measured top-to-baseline height on each frame. The table and graph show the frame-by-frame evolution.
 
-## Menus
-- **File**: open images, export CSV/HTML, close frame / all frames.
-- **Edit**: selections, saved marks, clear results, clear scientific setup.
-- **View**: frame stepping, zoom, overlay, magnifier.
-- **Analyze**: measure selection, histogram limits, auto-measure.
-- **Batch**: run the scientific measurement or the legacy recipe over all frames, clear results.
+## Why multiple components matter
+A single color seed is not sufficient for this experiment because the water appearance contains visually different regions. PixMatch therefore treats a scientific phase as a **union of independently learned components** instead of assuming one color represents the entire physical phase.
 
-## Sequence list (right-click an image)
-- **Set as reference (frame 1)** moves that image to the top. Phase/line setups from the old reference are cleared, because they belong to the old frame.
-- **Delete image** removes it (and its recovery copy). Deleting frame 1 also clears setups.
+This is also the foundation for later contact-angle work: the target phase, secondary phase, and substrate baseline are represented separately instead of being conflated into one region.
