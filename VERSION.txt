@@ -1,2 +1,3 @@
-PixMatch 3.17.1
-3.17 (user-defined tracked lines + angles) + security bump: @tanstack/react-start 1.168.60 / react-router 1.170.41 (CVE-2026-102989)
+PixMatch 1.3
+Based on 1.1 (3.17.1 feature set: user-defined tracked lines + angles). No bun.lock (regenerate with `bun install` if wanted).
+Deploy fix: npm "overrides" force @tanstack/react-start 1.168.60, react-router 1.170.41 and start-server-core 1.169.39 so Vercel does not block the install (CVE-2026-102989 / GHSA-qx66-fv34-fjm8).
