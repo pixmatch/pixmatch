@@ -1,0 +1,2 @@
+import { processBatch } from '../execution/processBatch'; import type { BatchRecipe, ImageFrame } from '../types';
+self.onmessage=(e:MessageEvent<{type:'PROCESS';experimentId:string;frames:ImageFrame[];recipe:BatchRecipe}>)=>{try{const r=processBatch(e.data.experimentId,e.data.frames,e.data.recipe);(self as any).postMessage({type:'RESULT',result:r});}catch(error){(self as any).postMessage({type:'ERROR',error:String(error)});}};

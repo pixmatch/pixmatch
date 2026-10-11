@@ -1,0 +1,3 @@
+import { deltaE00 } from '../color/ciede2000'; import type { Lab, PhaseMask, SegmentationConfig } from '../types';
+export function classifyLab(lab:Lab, cfg:SegmentationConfig):boolean { return deltaE00(lab,cfg.referenceLab) <= cfg.deltaEThreshold; }
+export function maskFromLab(labField:Float32Array,width:number,height:number,cfg:SegmentationConfig):PhaseMask { const m=new Uint8Array(width*height),roi=cfg.roi; for(let y=0;y<height;y++)for(let x=0;x<width;x++){if(roi&&(x<roi.x||y<roi.y||x>=roi.x+roi.width||y>=roi.y+roi.height))continue; const p=(y*width+x)*3; if(classifyLab([labField[p],labField[p+1],labField[p+2]],cfg))m[y*width+x]=1;} return {width,height,data:m}; }

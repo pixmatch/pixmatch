@@ -1,0 +1,4 @@
+import type { ExperimentResult, MeasurementResult } from '../types';
+const esc=(v:any)=>`"${String(v??'').replaceAll('"','""')}"`;
+export function exportCSV(result:ExperimentResult){const h=['frame','measurementId','minY','maxY','pixelHeight','heightMm','confidence','status','mmPerPixel','calibrationUncertaintyMm','segmentationUncertaintyMm','combinedUncertaintyMm','algorithmVersion','measurementConvention'];const rows=result.results.map(r=>[r.frameIndex,r.measurementId,r.minY,r.maxY,r.pixelHeight,r.physicalHeightMm,r.confidence,r.status,r.calibrationScaleMmPerPixel,r.uncertainty?.calibrationUncertaintyMm,r.uncertainty?.segmentationUncertaintyMm,r.uncertainty?.combinedUncertaintyMm,r.algorithmVersion,r.measurementConvention]);return [h,...rows].map(r=>r.map(esc).join(',')).join('\n');}
+export function exportJSON(result:ExperimentResult){return JSON.stringify(result,null,2);}

@@ -8,7 +8,7 @@
  * Phase 5  descriptors     — area, perimeter, centroid, bbox, circularity, Feret
  */
 
-import { labDistance, rgbToLab, type LAB } from "./color";
+import { labDistance, labDistanceW, rgbToLab, type LAB } from "./color";
 
 export type Pt = { x: number; y: number };
 
@@ -28,6 +28,19 @@ export type SegmentResult = {
   seedLab: LAB;
 };
 
+export type ChannelId = "gray" | "L" | "a" | "b" | "R" | "G" | "B";
+export const CHANNELS: Record<ChannelId, { label: string; min: number; max: number }> = {
+  gray: { label: "Gray", min: 0, max: 255 },
+  L: { label: "L*", min: 0, max: 100 },
+  a: { label: "a*", min: -128, max: 127 },
+  b: { label: "b*", min: -128, max: 127 },
+  R: { label: "R", min: 0, max: 255 },
+  G: { label: "G", min: 0, max: 255 },
+  B: { label: "B", min: 0, max: 255 },
+};
+/** Optional hard windows per CIELAB channel (learned from the histogram). Pixels outside are rejected. */
+export type ChannelLimits = Partial<Record<"L" | "a" | "b" | "R" | "G" | "B", [number, number]>>;
+
 export type DetectOptions = {
   tolerance: number; // ΔE threshold
   metric: "cie76" | "ciede2000";
@@ -35,6 +48,14 @@ export type DetectOptions = {
   connectivity: 4 | 8;
   smooth: number; // morphological iterations
   fillHoles: boolean;
+  /** 0..1 — weight of L* in ΔE. <1 tolerates exposure drift between frames. Default 1. */
+  lightnessWeight?: number;
+  /** Histogram-derived windows applied on top of the colour distance. */
+  channelLimits?: ChannelLimits | null;
+  /** 0..1 contribution of normalized RGB distance to the detection score. */
+  rgbWeight?: number;
+  /** 0..100 normalized RGB distance tolerance. */
+  rgbTolerance?: number;
 };
 
 export const DEFAULT_DETECT: DetectOptions = {
@@ -44,6 +65,10 @@ export const DEFAULT_DETECT: DetectOptions = {
   connectivity: 8,
   smooth: 1,
   fillHoles: true,
+  lightnessWeight: 1,
+  channelLimits: null,
+  rgbWeight: 0.2,
+  rgbTolerance: 18,
 };
 
 /** Cache the LAB conversion of an ImageData so repeated growth is cheap. */
@@ -52,14 +77,18 @@ export function toLabField(data: ImageData) {
   const L = new Float32Array(n);
   const A = new Float32Array(n);
   const B = new Float32Array(n);
+  const R = new Uint8Array(n);
+  const G = new Uint8Array(n);
+  const BB = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
     const p = i * 4;
     const lab = rgbToLab(data.data[p], data.data[p + 1], data.data[p + 2]);
     L[i] = lab.L;
     A[i] = lab.a;
     B[i] = lab.b;
+    R[i] = data.data[p]; G[i] = data.data[p + 1]; BB[i] = data.data[p + 2];
   }
-  return { L, A, B, width: data.width, height: data.height };
+  return { L, A, B, R, G, B8: BB, width: data.width, height: data.height };
 }
 
 export type LabField = ReturnType<typeof toLabField>;
@@ -252,6 +281,17 @@ function feret(pts: Pt[]) {
 }
 
 /** Full detection pipeline from a seed point. */
+function rgbFromSeed(field: LabField, p: Pt) {
+  const x = Math.max(0, Math.min(field.width - 1, Math.round(p.x)));
+  const y = Math.max(0, Math.min(field.height - 1, Math.round(p.y)));
+  const i = y * field.width + x;
+  return { r: field.R[i], g: field.G[i], b: field.B8[i] };
+}
+
+function rgbDistance100(a: { r: number; g: number; b: number }, b: { r: number; g: number; b: number }) {
+  return Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b) / Math.sqrt(3 * 255 * 255) * 100;
+}
+
 export function detectRegion(
   field: LabField,
   seed: Pt,
@@ -285,12 +325,26 @@ export function detectRegion(
     const x = i % w;
     const y = (i - x) / w;
     if (x < x0 || y < y0 || x > x1 || y > y1) continue;
-    const d = labDistance(
+    const lim = opts.channelLimits;
+    if (lim) {
+      if (lim.L && (field.L[i] < lim.L[0] || field.L[i] > lim.L[1])) continue;
+      if (lim.a && (field.A[i] < lim.a[0] || field.A[i] > lim.a[1])) continue;
+      if (lim.b && (field.B[i] < lim.b[0] || field.B[i] > lim.b[1])) continue;
+      if (lim.R && (field.R[i] < lim.R[0] || field.R[i] > lim.R[1])) continue;
+      if (lim.G && (field.G[i] < lim.G[0] || field.G[i] > lim.G[1])) continue;
+      if (lim.B && (field.B8[i] < lim.B[0] || field.B8[i] > lim.B[1])) continue;
+    }
+    const labD = labDistanceW(
       { L: field.L[i], a: field.A[i], b: field.B[i] },
       seedLab,
       opts.metric,
+      opts.lightnessWeight ?? 1,
     );
-    if (d > opts.tolerance) continue;
+    const seedRgb = rgbFromSeed(field, seed);
+    const rgbD = rgbDistance100({ r: field.R[i], g: field.G[i], b: field.B8[i] }, seedRgb);
+    const rw = Math.max(0, Math.min(1, opts.rgbWeight ?? 0));
+    const d = (1 - rw) * labD + rw * rgbD;
+    if (d > opts.tolerance || (rw > 0 && rgbD > (opts.rgbTolerance ?? 18))) continue;
     mask[i] = 1;
     sumL += field.L[i];
     sumA += field.A[i];
@@ -313,14 +367,18 @@ export function detectRegion(
   for (let k = 0; k < opts.smooth; k++) mask = erode(mask, w, h);
   if (opts.fillHoles) mask = fillHoles(mask, w, h);
 
-  let area = 0, cxs = 0, cys = 0;
-  let minX = w, minY = h, maxX = 0, maxY = 0;
+  let area = 0, cxs = 0, cys = 0, sumLFinal = 0, sumAFinal = 0, sumBFinal = 0;
+  let minX = w, minY = h, maxX = -1, maxY = -1;
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
-      if (!mask[y * w + x]) continue;
+      const i = y * w + x;
+      if (!mask[i]) continue;
       area++;
       cxs += x;
       cys += y;
+      sumLFinal += field.L[i];
+      sumAFinal += field.A[i];
+      sumBFinal += field.B[i];
       if (x < minX) minX = x;
       if (y < minY) minY = y;
       if (x > maxX) maxX = x;
@@ -345,7 +403,7 @@ export function detectRegion(
     circularity: perimeter > 0 ? Math.min(1, (4 * Math.PI * area) / (perimeter * perimeter)) : 0,
     feretMax,
     feretMin,
-    meanLab: { L: sumL / count, a: sumA / count, b: sumB / count },
+    meanLab: { L: sumLFinal / area, a: sumAFinal / area, b: sumBFinal / area },
     seedLab,
   };
 }
@@ -360,6 +418,9 @@ export function relocateSeed(
   around: Pt,
   searchRadius: number,
   metric: "cie76" | "ciede2000",
+  lightnessWeight = 1,
+  referenceRgb?: { r: number; g: number; b: number },
+  rgbWeight = 0,
 ): { seed: Pt; delta: number } {
   let best = { seed: around, delta: Infinity };
   const step = searchRadius > 40 ? 2 : 1;
@@ -371,14 +432,37 @@ export function relocateSeed(
       const i = yi * field.width + xi;
       // Penalise edge pixels: a good seed matches the reference colour AND
       // sits in a flat neighbourhood of the same phase.
-      const d =
-        labDistance({ L: field.L[i], a: field.A[i], b: field.B[i] }, reference, metric) +
-        0.5 * localSpread(field, xi, yi, 2, metric);
+      const labD = labDistanceW({ L: field.L[i], a: field.A[i], b: field.B[i] }, reference, metric, lightnessWeight);
+      const rgbD = referenceRgb ? Math.hypot(field.R[i] - referenceRgb.r, field.G[i] - referenceRgb.g, field.B8[i] - referenceRgb.b) / Math.sqrt(3 * 255 * 255) * 100 : 0;
+      const rw = Math.max(0, Math.min(1, rgbWeight));
+      const d = (1 - rw) * labD + rw * rgbD + 0.5 * localSpread(field, xi, yi, 2, metric);
       if (d < best.delta) best = { seed: { x: xi, y: yi }, delta: d };
 
     }
   }
   return best;
+}
+
+/**
+ * Reference-anchored relocation with an optional temporal prior. Both candidates
+ * are scored against the immutable reference colour; the prior never supplies a
+ * mask or hard constraint, so a bad previous frame cannot lock the next frame.
+ */
+export function relocateSeedWithSoftPrior(
+  field: LabField,
+  reference: LAB,
+  referencePoint: Pt,
+  priorPoint: Pt | undefined,
+  searchRadius: number,
+  metric: "cie76" | "ciede2000",
+  lightnessWeight = 1,
+  referenceRgb?: { r: number; g: number; b: number },
+  rgbWeight = 0,
+) {
+  const ref = relocateSeed(field, reference, referencePoint, searchRadius, metric, lightnessWeight, referenceRgb, rgbWeight);
+  if (!priorPoint) return ref;
+  const prior = relocateSeed(field, reference, priorPoint, searchRadius, metric, lightnessWeight, referenceRgb, rgbWeight);
+  return prior.delta + 0.75 < ref.delta ? prior : ref;
 }
 
 /** 256-bin histogram of the weighted-gray channel for the whole frame or ROI. */
@@ -397,4 +481,71 @@ export function histogram(data: ImageData, roi?: { x: number; y: number; w: numb
       bins[Math.max(0, Math.min(255, v))]++;
     }
   return bins;
+}
+
+
+/** 256-bin histogram of one channel (gray from RGB, L, a and b from the CIELAB field) for a frame or ROI. */
+export function channelHistogram(
+  data: ImageData,
+  field: LabField,
+  channel: ChannelId,
+  roi?: { x: number; y: number; w: number; h: number },
+) {
+  if (channel === "gray") return histogram(data, roi);
+  const { min, max } = CHANNELS[channel];
+  const arr = channel === "L" ? field.L : channel === "a" ? field.A : channel === "b" ? field.B : channel === "R" ? field.R : channel === "G" ? field.G : field.B8;
+  const bins = new Uint32Array(256);
+  const x0 = roi ? Math.max(0, Math.floor(roi.x)) : 0;
+  const y0 = roi ? Math.max(0, Math.floor(roi.y)) : 0;
+  const x1 = roi ? Math.min(field.width, Math.floor(roi.x + roi.w)) : field.width;
+  const y1 = roi ? Math.min(field.height, Math.floor(roi.y + roi.h)) : field.height;
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const k = Math.floor(((arr[y * field.width + x] - min) / (max - min)) * 255);
+      bins[Math.max(0, Math.min(255, k))]++;
+    }
+  return bins;
+}
+
+function percentile(sorted: Float32Array, q: number) {
+  if (!sorted.length) return 0;
+  return sorted[Math.max(0, Math.min(sorted.length - 1, Math.round(q * (sorted.length - 1))))];
+}
+
+/**
+ * Robust L, a and b windows covering a traced region (2nd–98th percentile, lightly padded).
+ * Used to turn a selected region into histogram limits that also apply in other frames.
+ */
+export function regionLimits(field: LabField, mask: Uint8Array): ChannelLimits | null {
+  const L: number[] = [], A: number[] = [], B: number[] = [], R: number[] = [], G: number[] = [], RB: number[] = [];
+  for (let i = 0; i < mask.length; i++) if (mask[i]) { L.push(field.L[i]); A.push(field.A[i]); B.push(field.B[i]); R.push(field.R[i]); G.push(field.G[i]); RB.push(field.B8[i]); }
+  if (L.length < 8) return null;
+  const win = (v: number[], pad: number): [number, number] => {
+    const s = Float32Array.from(v).sort();
+    return [percentile(s, 0.02) - pad, percentile(s, 0.98) + pad];
+  };
+  return { L: win(L, 2), a: win(A, 1.5), b: win(B, 1.5), R: win(R, 4), G: win(G, 4), B: win(RB, 4) };
+}
+
+/** Median CIELAB of the outer frame ring — a stand-in for the background/illumination level. */
+export function borderStats(field: LabField, ringFraction = 0.05): LAB {
+  const rx = Math.max(1, Math.round(field.width * ringFraction));
+  const ry = Math.max(1, Math.round(field.height * ringFraction));
+  const L: number[] = [], A: number[] = [], B: number[] = [];
+  for (let y = 0; y < field.height; y++) for (let x = 0; x < field.width; x++) {
+    if (x >= rx && x < field.width - rx && y >= ry && y < field.height - ry) { x = field.width - rx - 1; continue; }
+    const i = y * field.width + x;
+    L.push(field.L[i]); A.push(field.A[i]); B.push(field.B[i]);
+  }
+  const med = (v: number[]) => percentile(Float32Array.from(v).sort(), 0.5);
+  return { L: med(L), a: med(A), b: med(B) };
+}
+
+/** Shift a frame's CIELAB field so its border colour matches the reference frame's. */
+export function normalizeToReference(field: LabField, reference: LAB): LabField {
+  const own = borderStats(field);
+  const dL = reference.L - own.L, dA = reference.a - own.a, dB = reference.b - own.b;
+  const L = new Float32Array(field.L.length), A = new Float32Array(field.A.length), B = new Float32Array(field.B.length);
+  for (let i = 0; i < L.length; i++) { L[i] = field.L[i] + dL; A[i] = field.A[i] + dA; B[i] = field.B[i] + dB; }
+  return { L, A, B, R: field.R, G: field.G, B8: field.B8, width: field.width, height: field.height };
 }

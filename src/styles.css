@@ -409,3 +409,27 @@
     .sequence-panel .ij-sunken { max-height: 180px; }
   }
 }
+
+@layer components {
+  .pix-download-btn {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid color-mix(in oklab, #2ea8ff 72%, var(--border));
+    border-radius: 0.55rem;
+    padding: 0.48rem 0.78rem;
+    color: white;
+    background: linear-gradient(180deg, #168fff, #075fc4);
+    box-shadow: 0 0 0 1px color-mix(in oklab, #5ec5ff 25%, transparent), 0 0 18px color-mix(in oklab, #1598ff 48%, transparent), inset 0 1px 0 rgba(255,255,255,.22);
+    font-weight: 700;
+    transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
+  }
+  .pix-download-btn:hover {
+    filter: brightness(1.08);
+    box-shadow: 0 0 0 1px rgba(126,211,252,.45), 0 0 26px rgba(21,152,255,.7), inset 0 1px 0 rgba(255,255,255,.3);
+  }
+  .pix-download-btn:active { transform: translateY(1px); }
+}
+
+.download-menu-item { width: 100%; display: block; border-radius: 6px; padding: 8px 9px; text-align: left; font-size: 11px; color: #dbeafe; background: transparent; }
+.download-menu-item:hover:not(:disabled) { background: rgba(37, 124, 214, .22); color: #fff; }
+.download-menu-item:disabled { opacity: .38; cursor: not-allowed; }

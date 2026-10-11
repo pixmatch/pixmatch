@@ -10,6 +10,13 @@ const REF_X = 95.047;
 const REF_Y = 100.0;
 const REF_Z = 108.883;
 
+// IEC 61966-2-1 sRGB -> XYZ (D65), expressed for XYZ scaled to 0..100.
+const SRGB_TO_XYZ = [
+  [0.4124564, 0.3575761, 0.1804375],
+  [0.2126729, 0.7151522, 0.0721750],
+  [0.0193339, 0.1191920, 0.9503041],
+] as const;
+
 function srgbToLinear(c: number) {
   const v = c / 255;
   return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
@@ -24,9 +31,9 @@ export function rgbToLab(r: number, g: number, b: number): LAB {
   const gl = srgbToLinear(g) * 100;
   const bl = srgbToLinear(b) * 100;
 
-  const x = pivot((rl * 0.4124 + gl * 0.3576 + bl * 0.1805) / REF_X);
-  const y = pivot((rl * 0.2126 + gl * 0.7152 + bl * 0.0722) / REF_Y);
-  const z = pivot((rl * 0.0193 + gl * 0.1192 + bl * 0.9505) / REF_Z);
+  const x = pivot((rl * SRGB_TO_XYZ[0][0] + gl * SRGB_TO_XYZ[0][1] + bl * SRGB_TO_XYZ[0][2]) / REF_X);
+  const y = pivot((rl * SRGB_TO_XYZ[1][0] + gl * SRGB_TO_XYZ[1][1] + bl * SRGB_TO_XYZ[1][2]) / REF_Y);
+  const z = pivot((rl * SRGB_TO_XYZ[2][0] + gl * SRGB_TO_XYZ[2][1] + bl * SRGB_TO_XYZ[2][2]) / REF_Z);
 
   return { L: 116 * y - 16, a: 500 * (x - y), b: 200 * (y - z) };
 }
@@ -84,16 +91,28 @@ export function deltaE2000(p: LAB, q: LAB) {
   const Sh = 1 + 0.015 * Cbarp * T;
   const Rt = -Math.sin((2 * dTheta * Math.PI) / 180) * Rc;
 
-  return Math.sqrt(
-    (dLp / (kL * Sl)) ** 2 +
-      (dCp / (kC * Sc)) ** 2 +
-      (dHp / (kH * Sh)) ** 2 +
-      Rt * (dCp / (kC * Sc)) * (dHp / (kH * Sh)),
-  );
+  const termL = dLp / (kL * Sl);
+  const termC = dCp / (kC * Sc);
+  const termH = dHp / (kH * Sh);
+  // Floating-point roundoff can make the CIEDE2000 quadratic form tiny-negative
+  // for nearly identical colours. Clamp rather than ever exposing NaN.
+  const squared = Math.max(0, termL * termL + termC * termC + termH * termH + Rt * termC * termH);
+  const result = Math.sqrt(squared);
+  return Number.isFinite(result) ? result : 0;
 }
 
 export function labDistance(p: LAB, q: LAB, metric: "cie76" | "ciede2000") {
   return metric === "cie76" ? deltaE76(p, q) : deltaE2000(p, q);
+}
+
+/**
+ * ΔE with an adjustable lightness weight (0..1). Lowering it makes matching tolerant to
+ * exposure / illumination drift between frames while still separating phases by hue and chroma.
+ */
+export function labDistanceW(p: LAB, q: LAB, metric: "cie76" | "ciede2000", lightnessWeight = 1) {
+  if (lightnessWeight >= 1) return labDistance(p, q, metric);
+  const w = Math.max(0, lightnessWeight);
+  return labDistance(p, { L: p.L + (q.L - p.L) * w, a: q.a, b: q.b }, metric);
 }
 
 export function rgbToHex(r: number, g: number, b: number) {

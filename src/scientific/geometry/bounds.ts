@@ -1,0 +1,2 @@
+import type { PhaseMask, SpatialBounds, MeasurementConvention } from '../types';
+export function extractVerticalBounds(mask:PhaseMask,convention:MeasurementConvention):SpatialBounds|null{let minY=mask.height,maxY=-1,sum=0,n=0;for(let y=0;y<mask.height;y++)for(let x=0;x<mask.width;x++)if(mask.data[y*mask.width+x]){minY=Math.min(minY,y);maxY=Math.max(maxY,y);sum+=y;n++;}if(!n)return null;return {minY,maxY,centroidY:sum/n,pixelHeight:convention==='INCLUSIVE_PIXEL'?maxY-minY+1:maxY-minY};}

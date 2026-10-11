@@ -1,0 +1,2 @@
+import { rgbToLab } from '../color/rgbToLab'; import { deltaE00 } from '../color/ciede2000';
+export function runScientificSelfCheck(){const black=rgbToLab([0,0,0]),white=rgbToLab([255,255,255]);if(!black.every(Number.isFinite)||!white.every(Number.isFinite))throw new Error('Color conversion failed');if(Math.abs(deltaE00(black,black))>1e-9)throw new Error('CIEDE2000 identity failed');return {ok:true,checks:['RGB→XYZ→Lab','CIEDE2000 identity']};}

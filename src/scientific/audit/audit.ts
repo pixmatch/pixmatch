@@ -1,0 +1,1 @@
+import type { ExperimentResult } from '../types'; export function validateAudit(result:ExperimentResult){return result.audit.frameCount>=0&&!!result.audit.algorithmVersion&&result.audit.calibration.mmPerPixel>0&&!!result.audit.processingStartedAt&&!!result.audit.processingCompletedAt;}

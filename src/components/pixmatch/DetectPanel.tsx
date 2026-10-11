@@ -19,7 +19,7 @@ type Props = {
   isRunningAll?: boolean;
 };
 
-/** CIELAB boundary detection controls + the manual/auto propagation switch. */
+/** CIELAB + RGB boundary detection controls + the manual/auto propagation switch. */
 export function DetectPanel({
   detect,
   onDetect,
@@ -72,6 +72,30 @@ export function DetectPanel({
         max={12}
         step={1}
         onChange={(v) => set("seedRadius", v)}
+      />
+      <Slider
+        label="Lightness weight (L*)"
+        value={detect.lightnessWeight ?? 1}
+        min={0}
+        max={1}
+        step={0.05}
+        onChange={(v) => set("lightnessWeight", v)}
+      />
+      <Slider
+        label="RGB contribution"
+        value={detect.rgbWeight ?? 0}
+        min={0}
+        max={1}
+        step={0.05}
+        onChange={(v) => set("rgbWeight", v)}
+      />
+      <Slider
+        label="RGB tolerance (0–100)"
+        value={detect.rgbTolerance ?? 18}
+        min={1}
+        max={60}
+        step={1}
+        onChange={(v) => set("rgbTolerance", v)}
       />
       <Slider
         label="Smoothing"
