@@ -10,3 +10,15 @@ export function deltaE00(a:Lab,b:Lab):number {
  const Sl=1+.015*Math.pow(Lp-50,2)/Math.sqrt(20+Math.pow(Lp-50,2)),Sc=1+.045*Cp,Sh=1+.015*Cp*T,Rt=-Math.sin(2*dtheta*rad)*Rc;
  return Math.sqrt(Math.pow(dLp/Sl,2)+Math.pow(dCp/Sc,2)+Math.pow(dHp/Sh,2)+Rt*(dCp/Sc)*(dHp/Sh));
 }
+
+/**
+ * CIEDE2000 with an early exit.
+ * Because ΔE00 ≥ |ΔL*| / S_L and S_L ≤ 1.75, any pair with |ΔL*|/1.75 > cutoff is certainly farther than `cutoff`.
+ * For those pairs the cheap lower bound is returned (it is already > cutoff, so classification is unaffected);
+ * for every other pair the exact ΔE00 is returned.
+ */
+export function deltaE00Bounded(a: Lab, b: Lab, cutoff: number): number {
+  const lower = Math.abs(a[0] - b[0]) / 1.75;
+  if (lower > cutoff) return lower;
+  return deltaE00(a, b);
+}

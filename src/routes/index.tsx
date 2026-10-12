@@ -74,6 +74,9 @@ import { CalibrationPanel } from "@/components/pixmatch/CalibrationPanel";
 import { DetectPanel } from "@/components/pixmatch/DetectPanel";
 import { ResultsTable } from "@/components/pixmatch/ResultsTable";
 import { HistogramView } from "@/components/pixmatch/HistogramView";
+import { PipelinePanel } from "@/components/pixmatch/PipelinePanel";
+import { exportAuditJSON as exportPipelineAudit, exportCSV as exportPipelineCsv, exportJSON as exportPipelineJson } from "@/scientific/export/export";
+import type { ExperimentResult as PipelineExperiment } from "@/scientific/types";
 import { removeStoredImage, restoreImages, storeImages } from "@/lib/frame-storage";
 import {
   captureAngleAnchors,
@@ -222,6 +225,8 @@ function Workspace() {
   const [histChannel, setHistChannel] = useState<ChannelId>("gray");
   const [matchIllumination, setMatchIllumination] = useState(false);
   const [pivConfig, setPivConfig] = useState<PivConfig>(DEFAULT_PIV);
+  /** Latest run of the scientific engine pipeline (see PipelinePanel). */
+  const [pipelineResult, setPipelineResult] = useState<PipelineExperiment | null>(null);
   const [pivResults, setPivResults] = useState<PivPairResult[]>([]);
   const [isRunningPiv, setIsRunningPiv] = useState(false);
   const undoStackRef = useRef<any[]>([]);
@@ -1646,6 +1651,7 @@ function Workspace() {
       { label: "Clear PIV vectors", action: clearPiv },
     ],
     Batch: [
+      { label: "Measurement pipeline (engine)…", action: () => document.getElementById("pixmatch-pipeline")?.scrollIntoView({ behavior: "smooth", block: "start" }) },
       { label: "Run scientific measurement on all frames", action: () => { void runScientificAll(); } },
       { label: "Clear scientific results", action: clearScientificResults },
       { label: "Capture recipe from this frame", action: captureRecipe },
@@ -1765,6 +1771,9 @@ function Workspace() {
                 <button className="download-menu-item" onClick={async () => { try { const blob = await exportGraphPng(frames); download("pixmatch-scientific-graph.png", blob, "image/png"); } finally { setDownloadMenuOpen(false); } }}>Graph PNG</button>
                 <button className="download-menu-item" onClick={() => { download("pixmatch-report.pdf", exportPdf(frames, recipe), "application/pdf"); setDownloadMenuOpen(false); }}>PDF report</button>
                 <button className="download-menu-item" onClick={() => { download("pixmatch-report.html", exportHtml(frames, recipe), "text/html;charset=utf-8"); setDownloadMenuOpen(false); }}>HTML report</button>
+                <button className="download-menu-item" disabled={!pipelineResult} onClick={() => { if (pipelineResult) download("pixmatch-pipeline.csv", exportPipelineCsv(pipelineResult), "text/csv;charset=utf-8"); setDownloadMenuOpen(false); }}>Pipeline results (CSV)</button>
+                <button className="download-menu-item" disabled={!pipelineResult} onClick={() => { if (pipelineResult) download("pixmatch-pipeline.json", exportPipelineJson(pipelineResult), "application/json"); setDownloadMenuOpen(false); }}>Pipeline results (JSON)</button>
+                <button className="download-menu-item" disabled={!pipelineResult} onClick={() => { if (pipelineResult) download("pixmatch-pipeline-audit.json", exportPipelineAudit(pipelineResult), "application/json"); setDownloadMenuOpen(false); }}>Pipeline audit record (JSON)</button>
                 <button className="download-menu-item" disabled={!pivResults.length} onClick={() => { download("pixmatch-piv.csv", exportPivCsv(pivResults), "text/csv;charset=utf-8"); setDownloadMenuOpen(false); }}>PIV vectors CSV{pivResults.length ? "" : " · no data"}</button>
               </div>
             )}
@@ -2062,6 +2071,30 @@ function Workspace() {
                 setStatus(instruction);
               }}
               disabled={!hasImage}
+            />
+          </div>
+
+          <div className="ij-raised">
+            <div className="ij-title mb-3">Measurement pipeline (scientific engine)</div>
+            <PipelinePanel
+              frames={frames.map((f) => ({ id: f.id, name: f.name }))}
+              activeIndex={activeIndex}
+              scale={
+                (frame?.scale.pxPerUnit ? frame.scale : undefined) ??
+                frames.find((f) => f.scale.pxPerUnit)?.scale ??
+                (recipe?.scale.pxPerUnit ? recipe.scale : NO_SCALE)
+              }
+              loadFrameImage={async (index) => {
+                const target = frames[index];
+                if (!target) return null;
+                return (await loadFrame(target)).data;
+              }}
+              probeLab={probe?.lab ?? null}
+              regionLab={(selection ?? lastSelection)?.type === "Region" ? ((selection ?? lastSelection) as Extract<Selection, { type: "Region" }>).seg.meanLab : null}
+              selectedLine={selectedLinePoints}
+              onSelectFrame={setActiveIndex}
+              onResult={setPipelineResult}
+              setStatus={setStatus}
             />
           </div>
 

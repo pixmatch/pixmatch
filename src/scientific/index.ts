@@ -1,1 +1,20 @@
-export * from './types'; export * from './color/rgbToLab'; export * from './color/ciede2000'; export * from './segmentation/segmentFrame'; export * from './segmentation/connectedComponents'; export * from './segmentation/morphology'; export * from './geometry/bounds'; export * from './geometry/metrics'; export * from './calibration/calibration'; export * from './calibration/uncertainty'; export * from './quality/confidence'; export * from './execution/processFrame'; export * from './execution/processBatch'; export * from './audit/audit'; export * from './export/export'; export * from './worker/client';
+export * from './types';
+export * from './color/rgbToLab';
+export * from './color/ciede2000';
+export * from './segmentation/phaseClassifier';
+export * from './segmentation/segmentFrame';
+export * from './segmentation/connectedComponents';
+export * from './segmentation/morphology';
+export * from './geometry/bounds';
+export * from './geometry/boundary';
+export * from './geometry/metrics';
+export * from './calibration/calibration';
+export * from './calibration/uncertainty';
+export * from './quality/confidence';
+export * from './execution/processFrame';
+export * from './execution/processBatch';
+export * from './execution/recipeBuilder';
+export * from './audit/audit';
+export * from './export/export';
+export * from './validation/referenceTests';
+// The worker client is imported directly where needed ('@/scientific/worker/client') so server rendering never touches it.
